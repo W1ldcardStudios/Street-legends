@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STREET LEGENDS — Build 0.1</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080d13;color:#f4f7fb}
+#game{position:fixed;inset:0}canvas{display:block;width:100%;height:100%}
+.panel{background:linear-gradient(145deg,rgba(9,17,26,.88),rgba(9,17,26,.62));border:1px solid rgba(255,255,255,.13);box-shadow:0 12px 40px #0005;backdrop-filter:blur(12px);border-radius:14px}
+#brand{position:absolute;left:22px;top:20px;padding:13px 16px;letter-spacing:.14em;font-weight:900;font-size:13px}
+#brand span{display:block;color:#9db1c7;font-size:9px;letter-spacing:.22em;margin-top:4px;font-weight:600}
+#hud{position:absolute;right:22px;top:20px;padding:14px 17px;min-width:145px;text-align:right}
+#speed{font-size:42px;line-height:1;font-weight:900;letter-spacing:-.06em;font-variant-numeric:tabular-nums}
+#unit{font-size:10px;color:#9db1c7;letter-spacing:.18em;margin-top:4px}
+#gear{font-size:12px;color:#8fe1c2;margin-top:8px;font-weight:800;letter-spacing:.12em}
+#help{position:absolute;left:22px;bottom:22px;padding:13px 15px;max-width:340px;font-size:11px;line-height:1.7;color:#c6d2df}
+#help strong{color:white}
+#status{position:absolute;left:50%;top:20px;transform:translateX(-50%);padding:9px 14px;font-size:10px;letter-spacing:.12em;color:#c8d5e2;white-space:nowrap}
+#center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:22px;height:22px;pointer-events:none;opacity:.6}
+#center:before,#center:after{content:"";position:absolute;background:#fff}
+#center:before{width:1px;height:22px;left:10px}#center:after{height:1px;width:22px;top:10px}
+#message{position:absolute;right:22px;bottom:22px;padding:10px 13px;font-size:10px;color:#9fb0c2}
+@media(max-width:650px){#brand{left:10px;top:10px}#hud{right:10px;top:10px;min-width:112px}#speed{font-size:32px}#help{left:10px;bottom:10px;max-width:245px;font-size:10px}#status{top:82px;font-size:9px}#message{display:none}}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="brand" class="panel">STREET LEGENDS <span>WILDCARD STUDIOS · BUILD 0.1</span></div>
+<div id="status" class="panel">KZR-86 · HANDLING TEST FACILITY</div>
+<div id="hud" class="panel"><div id="speed">000</div><div id="unit">KM/H</div><div id="gear">GEAR 1 · DRIVE</div></div>
+<div id="help" class="panel"><strong>DRIVE</strong><br>W / ↑ Accelerate &nbsp; S / ↓ Brake / reverse<br>A / ← Steer left &nbsp; D / → Steer right<br>SPACE Handbrake drift &nbsp; R Reset car<br><span style="color:#8fa2b7">Tip: build speed, lift off slightly, then use the handbrake to rotate.</span></div>
+<div id="center"></div>
+<div id="message" class="panel">PROTOTYPE · Keyboard recommended</div>
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js";
+import RAPIER from "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.14.0/+esm";
+
+await RAPIER.init();
+
+const root=document.getElementById("game");
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x9db4c4);
+scene.fog=new THREE.Fog(0x9db4c4,95,310);
+const camera=new THREE.PerspectiveCamera(66,innerWidth/innerHeight,.1,650);
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.65));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+root.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xdceeff,0x53604e,2.0));
+const sun=new THREE.DirectionalLight(0xfff0d7,2.2);
+sun.position.set(-55,90,35);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);
+sun.shadow.camera.left=-115;sun.shadow.camera.right=115;sun.shadow.camera.top=115;sun.shadow.camera.bottom=-115;
+scene.add(sun);
+
+const world=new RAPIER.World({x:0,y:-9.81,z:0});
+world.timestep=1/60;
+const groundBody=world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+world.createCollider(RAPIER.ColliderDesc.cuboid(250,.5,250).setTranslation(0,-.55,0),groundBody);
+
+const mat=(color,roughness=.8,metalness=0)=>new THREE.MeshStandardMaterial({color,roughness,metalness});
+const grass=mat(0x536b52), asphalt=mat(0x252b31,.94), lineMat=mat(0xe5e4d8), barrierMat=mat(0xddd8ca), dark=mat(0x151b22), glass=mat(0x8fb5c8,.24,.2);
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(500,500),grass);ground.rotation.x=-Math.PI/2;ground.position.y=-.04;ground.receiveShadow=true;scene.add(ground);
+
+// A compact handling circuit with a long straight, sweepers and a tight hairpin.
+const routePoints=[
+ new THREE.Vector3(0,0,48),new THREE.Vector3(0,0,8),new THREE.Vector3(8,0,-22),
+ new THREE.Vector3(34,0,-39),new THREE.Vector3(65,0,-30),new THREE.Vector3(78,0,-5),
+ new THREE.Vector3(66,0,23),new THREE.Vector3(38,0,38),new THREE.Vector3(20,0,26),
+ new THREE.Vector3(24,0,5),new THREE.Vector3(43,0,-3),new THREE.Vector3(48,0,12),
+ new THREE.Vector3(34,0,25),new THREE.Vector3(12,0,24),new THREE.Vector3(0,0,48)
+];
+const curve=new THREE.CatmullRomCurve3(routePoints,false,"catmullrom",.18);
+const samples=260, roadWidth=13, verts=[],uvs=[],indices=[];
+for(let i=0;i<=samples;i++){
+ const t=i/samples,p=curve.getPoint(t),tan=curve.getTangent(t).normalize(),side=new THREE.Vector3(-tan.z,0,tan.x);
+ for(const s of [-roadWidth/2,roadWidth/2]){
+  const v=p.clone().addScaledVector(side,s);verts.push(v.x,.015,v.z);uvs.push(s/roadWidth+.5,t*14);
+ }
+ if(i<samples){const a=i*2;indices.push(a,a+1,a+2,a+1,a+3,a+2);}
+}
+const roadGeo=new THREE.BufferGeometry();roadGeo.setAttribute("position",new THREE.Float32BufferAttribute(verts,3));roadGeo.setAttribute("uv",new THREE.Float32BufferAttribute(uvs,2));roadGeo.setIndex(indices);roadGeo.computeVertexNormals();
+const road=new THREE.Mesh(roadGeo,asphalt);road.receiveShadow=true;scene.add(road);
+
+// Painted centre dashes and edge strips.
+function addStrip(offset,width,material,y=.035){
+ const v=[],idx=[];for(let i=0;i<=samples;i++){const t=i/samples,p=curve.getPoint(t),tan=curve.getTangent(t).normalize(),side=new THREE.Vector3(-tan.z,0,tan.x);for(const s of [offset-width/2,offset+width/2]){const q=p.clone().addScaledVector(side,s);v.push(q.x,y,q.z)}if(i<samples){let a=i*2;idx.push(a,a+1,a+2,a+1,a+3,a+2)}}
+ const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.Float32BufferAttribute(v,3));g.setIndex(idx);g.computeVertexNormals();scene.add(new THREE.Mesh(g,material));
+}
+addStrip(-6.25,.13,lineMat,.04);addStrip(6.25,.13,lineMat,.04);
+// Centre dashed line built from short segments.
+for(let i=0;i<samples;i+=5){const pts=curve.getPoints(0);const a=curve.getPoint(i/samples),b=curve.getPoint(Math.min(1,(i+2)/samples));const dx=b.x-a.x,dz=b.z-a.z;const dash=new THREE.Mesh(new THREE.BoxGeometry(.13,.025,Math.hypot(dx,dz)),lineMat);dash.position.set((a.x+b.x)/2,.05,(a.z+b.z)/2);dash.rotation.y=Math.atan2(dx,dz);scene.add(dash);}
+
+// Collision barriers along both edges; visual blocks share the same transforms.
+const barrierGeo=new THREE.BoxGeometry(2.1,.85,.65);
+for(let i=0;i<samples;i+=3){
+ const p=curve.getPoint(i/samples),t=curve.getTangent(i/samples).normalize(),side=new THREE.Vector3(-t.z,0,t.x);
+ for(const sign of [-1,1]){
+  const q=p.clone().addScaledVector(side,sign*(roadWidth/2+.85));
+  const yaw=Math.atan2(t.x,t.z);
+  const mesh=new THREE.Mesh(barrierGeo,barrierMat);mesh.position.set(q.x,.43,q.z);mesh.rotation.y=yaw;mesh.castShadow=true;mesh.receiveShadow=true;scene.add(mesh);
+  const rb=world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(q.x,.43,q.z).setRotation({x:0,y:Math.sin(yaw/2),z:0,w:Math.cos(yaw/2)}));
+  world.createCollider(RAPIER.ColliderDesc.cuboid(1.05,.43,.325),rb);
+ }
+}
+
+// Trackside details: lamps, low buildings, trees and distant hills.
+const trunkMat=mat(0x594332),leafMat=mat(0x34533f),buildingMats=[mat(0x68737a),mat(0x8b8981),mat(0x46545d)];
+function tree(x,z,s=1){const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.18*s,.25*s,2.1*s,7),trunkMat);trunk.position.set(x,1*s,z);trunk.castShadow=true;scene.add(trunk);const crown=new THREE.Mesh(new THREE.ConeGeometry(1.25*s,3.2*s,7),leafMat);crown.position.set(x,3.2*s,z);crown.castShadow=true;scene.add(crown)}
+for(let i=0;i<55;i++){const ang=i*2.399,rad=90+(i%5)*13;tree(Math.cos(ang)*rad,Math.sin(ang)*rad,.75+(i%4)*.12)}
+for(let i=0;i<12;i++){const x=-95+(i%4)*13,z=-80+Math.floor(i/4)*24;const b=new THREE.Mesh(new THREE.BoxGeometry(10,7+(i%3)*3,12),buildingMats[i%3]);b.position.set(x,4,z);b.castShadow=true;b.receiveShadow=true;scene.add(b)}
+// Distant low hills.
+for(let i=0;i<18;i++){const a=i/18*Math.PI*2,r=180;const hill=new THREE.Mesh(new THREE.ConeGeometry(24+(i%4)*7,22+(i%3)*8,7),mat(0x647c70));hill.position.set(Math.cos(a)*r,8,Math.sin(a)*r);hill.rotation.y=a;scene.add(hill)}
+
+// KZR-86 visual body.
+const car=new THREE.Group();scene.add(car);
+const bodyMat=new THREE.MeshStandardMaterial({color:0xd83b35,metalness:.58,roughness:.3});
+const body=new THREE.Mesh(new THREE.BoxGeometry(1.9,.52,4.15),bodyMat);body.position.y=.72;body.castShadow=true;car.add(body);
+const hood=new THREE.Mesh(new THREE.BoxGeometry(1.82,.2,1.15),bodyMat);hood.position.set(0,.98,-1.18);car.add(hood);
+const cabin=new THREE.Mesh(new THREE.BoxGeometry(1.52,.67,1.85),glass);cabin.position.set(0,1.22,.22);cabin.castShadow=true;car.add(cabin);
+const roof=new THREE.Mesh(new THREE.BoxGeometry(1.48,.12,1.25),dark);roof.position.set(0,1.6,.24);car.add(roof);
+const bumper=new THREE.Mesh(new THREE.BoxGeometry(1.92,.24,.22),dark);bumper.position.set(0,.53,-2.05);car.add(bumper);
+const rearBumper=bumper.clone();rearBumper.position.z=2.05;car.add(rearBumper);
+const wheelGeo=new THREE.CylinderGeometry(.39,.39,.28,18);wheelGeo.rotateZ(Math.PI/2);
+const wheels=[];
+for(const x of [-.99,.99])for(const z of [-1.32,1.32]){
+ const pivot=new THREE.Group();pivot.position.set(x,.48,z);car.add(pivot);
+ const tire=new THREE.Mesh(wheelGeo,dark);tire.castShadow=true;pivot.add(tire);
+ const hub=new THREE.Mesh(new THREE.CylinderGeometry(.19,.19,.295,16),mat(0xb8c1c9,.35,.8));hub.rotation.z=Math.PI/2;pivot.add(hub);
+ wheels.push({pivot,tire,front:z<0});
+}
+const headMat=new THREE.MeshStandardMaterial({color:0xf7f0d2,emissive:0x343020});
+for(const x of [-.62,.62]){const lamp=new THREE.Mesh(new THREE.BoxGeometry(.38,.13,.08),headMat);lamp.position.set(x,.83,-2.1);car.add(lamp)}
+const tailMat=new THREE.MeshStandardMaterial({color:0xe52a22,emissive:0x5b0805});
+for(const x of [-.62,.62]){const lamp=new THREE.Mesh(new THREE.BoxGeometry(.4,.13,.08),tailMat);lamp.position.set(x,.83,2.1);car.add(lamp)}
+const spoiler=new THREE.Mesh(new THREE.BoxGeometry(1.65,.08,.28),dark);spoiler.position.set(0,1.48,1.72);car.add(spoiler);
+
+const carBody=world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0,.9,39).setLinearDamping(.12).setAngularDamping(2.3).setCanSleep(false));
+carBody.enableCcd(true);
+world.createCollider(RAPIER.ColliderDesc.cuboid(.91,.42,1.98).setMass(1120).setFriction(.7).setRestitution(.02),carBody);
+const keys={};addEventListener("keydown",e=>{keys[e.code]=true;if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code))e.preventDefault();if(e.code==="KeyR")resetCar()});
+addEventListener("keyup",e=>keys[e.code]=false);
+function resetCar(){carBody.setTranslation({x:0,y:1,z:39},true);carBody.setRotation({x:0,y:0,z:0,w:1},true);carBody.setLinvel({x:0,y:0,z:0},true);carBody.setAngvel({x:0,y:0,z:0},true)}
+const cameraTarget=new THREE.Vector3(),desiredCam=new THREE.Vector3(),lookTarget=new THREE.Vector3(),forward=new THREE.Vector3(),right=new THREE.Vector3(),up=new THREE.Vector3(0,1,0);
+let speedKmh=0,steerVisual=0,elapsed=0;
+const speedEl=document.getElementById("speed"),gearEl=document.getElementById("gear");
+const clock=new THREE.Clock();
+function updateCar(dt){
+ const rot=carBody.rotation(),q=new THREE.Quaternion(rot.x,rot.y,rot.z,rot.w);
+ forward.set(0,0,-1).applyQuaternion(q);right.set(1,0,0).applyQuaternion(q);
+ const vel=carBody.linvel(),velocity=new THREE.Vector3(vel.x,vel.y,vel.z);
+ const forwardSpeed=velocity.dot(forward),lateralSpeed=velocity.dot(right);
+ const throttle=(keys.KeyW||keys.ArrowUp)?1:0,brake=(keys.KeyS||keys.ArrowDown)?1:0;
+ const steer=((keys.KeyA||keys.ArrowLeft)?1:0)-((keys.KeyD||keys.ArrowRight)?1:0);
+ const handbrake=!!keys.Space;
+ const mass=1120;
+ let driveForce=throttle*(forwardSpeed<0?7200:9200);
+ if(brake){driveForce += forwardSpeed>1?-15500:forwardSpeed<-.5?9000:0}
+ if(!throttle&&!brake&&Math.abs(forwardSpeed)>.1)driveForce-=Math.sign(forwardSpeed)*Math.min(1900,Math.abs(forwardSpeed)*155);
+ carBody.applyImpulse({x:forward.x*driveForce*dt,y:0,z:forward.z*driveForce*dt},true);
+ // Lateral tyre force: reduced while handbraking to allow controlled rotation.
+ const grip=handbrake?2.0:7.8;
+ carBody.applyImpulse({x:-right.x*lateralSpeed*mass*grip*dt,z:-right.z*lateralSpeed*mass*grip*dt,y:0},true);
+ const steerAngle=steer*(.48/(1+Math.abs(forwardSpeed)*.075));
+ const yawTorque=-steerAngle*(Math.abs(forwardSpeed)*mass*.82+250)*dt*(handbrake?1.45:1);
+ carBody.applyTorqueImpulse({x:0,y:yawTorque,z:0},true);
+ // Mild self-stabilisation when no steering input.
+ if(Math.abs(steer)<.01&&!handbrake){const av=carBody.angvel();carBody.applyTorqueImpulse({x:0,y:-av.y*mass*.10*dt,z:0},true)}
+ steerVisual=THREE.MathUtils.damp(steerVisual,steerAngle*1.7,9,dt);
+ wheels.forEach(w=>{if(w.front)w.pivot.rotation.y=steerVisual;w.tire.rotation.x-=forwardSpeed*dt*2.1});
+ speedKmh=Math.round(Math.abs(forwardSpeed)*3.6);
+ speedEl.textContent=String(speedKmh).padStart(3,"0");
+ const gear=forwardSpeed<-.5?"R":speedKmh<18?"1":speedKmh<42?"2":speedKmh<72?"3":speedKmh<112?"4":"5";
+ gearEl.textContent=`GEAR ${gear} · ${handbrake?"HANDBRAKE":brake?"BRAKING":throttle?"DRIVE":"COAST"}`;
+}
+function syncCar(){
+ const p=carBody.translation(),r=carBody.rotation();car.position.set(p.x,p.y-.36,p.z);car.quaternion.set(r.x,r.y,r.z,r.w);
+}
+function updateCamera(dt){
+ const p=carBody.translation(),r=carBody.rotation(),q=new THREE.Quaternion(r.x,r.y,r.z,r.w);
+ const f=new THREE.Vector3(0,0,-1).applyQuaternion(q);
+ desiredCam.set(p.x,p.y+3.7,p.z).addScaledVector(f,-8.8);
+ camera.position.lerp(desiredCam,1-Math.exp(-4.2*dt));
+ lookTarget.set(p.x,p.y+1.0,p.z).addScaledVector(f,5.5);
+ camera.lookAt(lookTarget);
+}
+function animate(){
+ requestAnimationFrame(animate);
+ const dt=Math.min(clock.getDelta(),.033);
+ // Two fixed-size substeps keep the vehicle stable across frame rates.
+ const substeps=2;world.timestep=dt/substeps;
+ for(let i=0;i<substeps;i++){updateCar(dt/substeps);world.step()}
+ syncCar();updateCamera(dt);
+ renderer.render(scene,camera);
+}
+camera.position.set(0,6,51);camera.lookAt(0,1,30);
+animate();
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.65))});
+</script>
+</body>
+</html>
